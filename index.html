@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Autofill SMARTMED</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <button class="back" id="backBtn" hidden aria-label="ย้อนกลับ">‹</button>
+    <div class="title" id="title">Autofill SMARTMED</div>
+    <div class="who" id="who"></div>
+  </header>
+  <main id="app"><div class="loading">กำลังโหลด…</div></main>
+  <div class="toast" id="toast" hidden></div>
+  <datalist id="advisorList"></datalist>
+
+  <script src="config.js"></script>
+  <script>
+    if (!window.APP_CONFIG.MOCK_LIFF) document.write('<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\/script>');
+  </script>
+  <script src="data.js"></script>
+  <script src="icd.js"></script>
+  <script src="promptpay.js"></script>
+  <script src="vendor/qrcode.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
