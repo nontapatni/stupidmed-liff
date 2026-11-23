@@ -1,6 +1,6 @@
-// ⚙️ แก้ 2 ค่านี้หลัง deploy (ดู README ขั้นที่ 5)
+// ค่าของ StupidMED (ตั้งค่าแล้ว)
 window.APP_CONFIG = {
-  LIFF_ID: 'ใส่-LIFF-ID',                                   // เช่น 2001234567-AbCdEfGh
-  API_URL: 'https://script.google.com/macros/s/ใส่-DEPLOYMENT-ID/exec',
-  MOCK_LIFF: false,                                         // true = ทดสอบนอก LINE (ห้ามเปิดตอนใช้จริง)
+  LIFF_ID: '2012763503-JiqzdStz',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxZMfd0vWDNrq3ZV1EFxAel3W2MKiRZ52EDDDfRt7qW9uxjRNFivL6Pse5_krH9eY8f/exec',
+  MOCK_LIFF: false,
 };
