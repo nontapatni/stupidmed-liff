@@ -249,21 +249,26 @@
     const blocks = activeBlocks();
     const editing = p.id ? S.dash.cases.find(c => c.caseId === p.id) : null;
     if (p.id && !editing) throw new Error('ไม่พบเคส');
+    // เปิดจากปุ่ม "แก้ไข" บนการ์ดอ่านเคสจากรูป EMR
+    let draft = null;
+    if (p.draft && !editing) draft = await api('getEmrDraft', { draftId: p.draft });
     if (!blocks.length && !editing) {
       app.onclick = null;
       app.innerHTML = `<div class="card empty"><div class="ic"><i class="fas fa-layer-group"></i></div><b>ต้องตั้งค่าบล็อกก่อนเพิ่มเคส</b><div class="btns"><button class="btn" id="gb"><i class="fas fa-sliders"></i> ตั้งค่าบล็อก</button></div></div>`;
       $('#gb').onclick = () => go('block', {}, true);
       return;
     }
-    $('#title').textContent = editing ? 'แก้เคส' : 'เพิ่มเคส';
+    $('#title').textContent = editing ? 'แก้เคส' : (draft ? 'ตรวจเคสจากรูป' : 'เพิ่มเคส');
     const locked = editing && editing.status !== 'open';
-    let blockId = editing ? editing.blockId : (p.block && blockById(p.block) ? p.block : (blockById(store.get('lastBlock')) && blockById(store.get('lastBlock')).archived !== '1' ? store.get('lastBlock') : blocks[0].blockId));
-    const v = Object.assign({ ptType: store.get('lastPt', 'ผู้ป่วยใน'), hn: '', careStart: '', careEnd: '', diagnosis: '', icd10: '', diseaseGroup: '', detail: '', advisor: '', setting: '', category: '', complexity: '' }, editing || {});
+    let blockId = editing ? editing.blockId : draft && blockById(draft.blockId) ? draft.blockId : (p.block && blockById(p.block) ? p.block : (blockById(store.get('lastBlock')) && blockById(store.get('lastBlock')).archived !== '1' ? store.get('lastBlock') : blocks[0].blockId));
+    const v = Object.assign({ ptType: store.get('lastPt', 'ผู้ป่วยใน'), hn: '', careStart: '', careEnd: '', diagnosis: '', icd10: '', diseaseGroup: '', detail: '', advisor: '', setting: '', category: '', complexity: '' }, editing || draft || {});
+    if (draft && !draft.ptType) v.ptType = store.get('lastPt', 'ผู้ป่วยใน');
     let icdAuto = false, dgAuto = !v.diseaseGroup, ptType = v.ptType;
     const blockList = editing && !blocks.some(b => b.blockId === blockId) ? blocks.concat([blockById(blockId)]) : blocks;
 
     app.onclick = null;
     app.innerHTML = `
+      ${draft ? `<div class="box warnbox"><i class="fas fa-wand-magic-sparkles"></i><div>ข้อมูลนี้อ่านจากรูปโดย AI ตรวจ <b>HN</b> และ<b>วันที่</b>กับเวชระเบียนก่อนบันทึก${draft.warnings && draft.warnings.length ? '<br><span class="small">' + draft.warnings.map(esc).join('<br>') + '</span>' : ''}</div></div>` : ''}
       ${locked ? `<div class="box warnbox"><i class="fas fa-lock"></i><div>เคสนี้อยู่ในงาน ${esc(editing.orderId)} แล้ว แก้ไม่ได้ ถ้าต้องแก้ ให้ยกเลิกงานก่อน</div></div>` : ''}
       <div class="card">
         <label>บล็อก</label><select id="block">${blockList.map(b => `<option value="${b.blockId}"${b.blockId === blockId ? ' selected' : ''}>${esc(b.course)} ${esc(b.courseName)} (${range(b.rotStart, b.rotEnd)})</option>`).join('')}</select>
@@ -355,7 +360,8 @@
       if (!checkAdvisor($('#advisor'))) return toast('ชื่ออาจารย์ต้องเลือกจากรายการ', true);
       busy(btn, true);
       try {
-        const saved = await api('saveCase', { case: c, allowDuplicate: !!allowDuplicate });
+        const saved = await api('saveCase', { case: c, allowDuplicate: !!allowDuplicate, draftId: draft ? draft.draftId : '' });
+        if (draft) { draft = null; history.replaceState(null, '', location.pathname + '?p=case&block=' + encodeURIComponent(c.blockId)); }
         store.set('lastBlock', c.blockId); store.set('lastPt', c.ptType);
         await loadDash();
         toast(saved.missing.length ? `บันทึกแล้ว (ยังขาด ${saved.missing.length} ช่อง)` : 'บันทึกแล้ว ครบทุกช่อง');
