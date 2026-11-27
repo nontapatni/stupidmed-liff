@@ -38,8 +38,28 @@
       body: JSON.stringify(Object.assign({ action, idToken: S.idToken }, data || {})),
     });
     const j = await res.json();
-    if (!j.ok) throw new Error(j.error || 'เกิดข้อผิดพลาด');
+    if (!j.ok) {
+      // เปิดหน้าค้างไว้นานเกิน ~1 ชม. token จะหมดอายุกลางทาง → login ใหม่ให้เอง
+      if (/IdToken expired|token หมดอายุ/i.test(j.error || '') && relogin()) return new Promise(() => {});
+      throw new Error(j.error || 'เกิดข้อผิดพลาด');
+    }
     return j.data;
+  }
+  // ---- ID token ของ LINE อายุ ~1 ชม. ในเบราว์เซอร์คอม LIFF SDK เก็บ token เดิมไว้ใน localStorage
+  // และ isLoggedIn() ยังเป็น true แม้ token หมดอายุแล้ว → ต้องเช็ก exp เอง แล้ว logout+login ใหม่
+  function tokenFresh() {
+    const d = (liff.getDecodedIDToken && liff.getDecodedIDToken()) || {};
+    return !d.exp || d.exp * 1000 > Date.now() + 60e3;   // เหลือน้อยกว่า 1 นาที = ถือว่าหมด
+  }
+  function relogin() {
+    // กันวนลูป: ถ้าเพิ่ง login ใหม่ไปไม่ถึง 30 วิ ไม่ทำซ้ำ (ให้ขึ้นข้อความผิดพลาดแทน)
+    const last = Number(sessionStorage.getItem('smd:relogin') || 0);
+    if (Date.now() - last < 30e3) return false;
+    sessionStorage.setItem('smd:relogin', String(Date.now()));
+    if (liff.isInClient && liff.isInClient()) { location.reload(); return true; }   // ในแอป LINE เปิดใหม่ก็ได้ token ใหม่
+    try { liff.logout(); } catch (e) {}
+    liff.login({ redirectUri: location.href });
+    return true;
   }
   // ---- แคชข้อมูล: แสดงของเดิมทันที แล้วดึงใหม่เบื้องหลัง (เก็บใน localStorage ของเครื่องผู้ใช้เอง)
   const CK = uid => 'smd:v1:' + uid;
@@ -684,6 +704,7 @@
       }
       await liff.init({ liffId: C.LIFF_ID });
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+      if (!tokenFresh() && relogin()) return;   // token เก่าค้างในเครื่อง (เปิดในคอมแล้วทิ้งไว้เกิน 1 ชม.)
       S.idToken = liff.getIDToken();
       const tokUid = (liff.getDecodedIDToken && liff.getDecodedIDToken() || {}).sub || '';
       ready();
