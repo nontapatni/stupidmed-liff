@@ -4,7 +4,7 @@
   const C = window.APP_CONFIG, O = window.OPT;
   const $ = s => document.querySelector(s);
   const app = $('#app');
-  const S = { me: null, dash: null, idToken: '' };
+  const S = { me: null, dash: null, idToken: '', uid: '', ready: null };
 
   // ------------------------------------------------------------ helpers
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -28,7 +28,11 @@
   }
   function busy(btn, on) { if (!btn) return; btn.disabled = on; if (on) { btn.dataset.t = btn.innerHTML; btn.innerHTML = '<i class="fas fa-circle-notch spin"></i> กำลังบันทึก'; } else if (btn.dataset.t) btn.innerHTML = btn.dataset.t; }
 
+  const READS = ['me', 'boot', 'dashboard', 'getEmrDraft', 'adminOrders', 'adminOrderDetail', 'adminSlip', 'adminCred'];
+  let mutSeq = 0;
   async function api(action, data) {
+    await S.ready;   // หน้าที่แสดงจากแคชก่อน LIFF พร้อม จะรอ token ตรงนี้
+    if (READS.indexOf(action) < 0) mutSeq++;
     const res = await fetch(C.API_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(Object.assign({ action, idToken: S.idToken }, data || {})),
@@ -37,7 +41,59 @@
     if (!j.ok) throw new Error(j.error || 'เกิดข้อผิดพลาด');
     return j.data;
   }
-  async function loadDash() { S.dash = await api('dashboard'); return S.dash; }
+  // ---- แคชข้อมูล: แสดงของเดิมทันที แล้วดึงใหม่เบื้องหลัง (เก็บใน localStorage ของเครื่องผู้ใช้เอง)
+  const CK = uid => 'smd:v1:' + uid;
+  function saveCache() { if (S.uid && S.me) store.set(CK(S.uid), JSON.stringify({ me: S.me, dash: S.dash })); }
+  function readCache(uid) { try { return JSON.parse(store.get(CK(uid), 'null')); } catch (e) { return null; } }
+  let dashAt = 0, dashP = null, viewSeq = 0;
+  function setDash(d) { S.dash = d; dashAt = Date.now(); saveCache(); }
+  function fetchDash() {
+    if (!dashP) {
+      const m = mutSeq;
+      dashP = api('dashboard').then(d => {
+        if (m === mutSeq) setDash(d); else dashAt = 0;   // มีการแก้ข้อมูลระหว่างโหลด → ข้อมูลชุดนี้อาจเก่า ไม่ทับ
+        return S.dash || d;
+      }).finally(() => { dashP = null; });
+    }
+    return dashP;
+  }
+  async function loadDash() { return fetchDash(); }
+  /** ใช้ข้อมูลที่มีอยู่ทันที ถ้าเก่ากว่า 15 วิ ค่อยดึงใหม่เบื้องหลัง */
+  async function dash() {
+    if (S.dash) { if (Date.now() - dashAt > 15000) bgRefresh(); return S.dash; }
+    return fetchDash();
+  }
+  function bgRefresh() {
+    const before = JSON.stringify(S.dash), seq = viewSeq;
+    fetchDash().then(() => { if (JSON.stringify(S.dash) !== before) quietRerender(seq); }).catch(() => {});
+  }
+  /** วาดหน้าเดิมใหม่เงียบ ๆ เฉพาะหน้าที่เป็นรายการ (ไม่ทับฟอร์มที่กำลังกรอก) */
+  function quietRerender(seq) {
+    if (seq !== viewSeq) return;
+    const p = params(), page = p.p || 'home';
+    if (!(page === 'home' || page === 'cases' || (page === 'order' && p.o))) return;
+    const y = window.scrollY;
+    render(true).then(() => window.scrollTo(0, y));
+  }
+  function recalcMissing() {
+    const bm = {};
+    S.dash.blocks.forEach(b => { bm[b.blockId] = b; });
+    S.dash.cases.forEach(c => { c.missing = bm[c.blockId] ? missing(c, bm[c.blockId]) : ['ไม่พบบล็อก']; });
+  }
+  /** แก้ข้อมูลในเครื่องตามผลที่เซิร์ฟเวอร์ตอบ — ไม่ต้องรอโหลดทั้งหมดใหม่ */
+  function patchDash(fn) {
+    if (!S.dash) return;
+    fn(S.dash); recalcMissing(); saveCache(); dashAt = 0;   // ครั้งหน้าที่เปิดหน้ารายการจะดึงของจริงเบื้องหลัง
+  }
+  const upsert = (arr, key, o) => { const i = arr.findIndex(x => x[key] === o[key]); if (i >= 0) arr[i] = Object.assign({}, arr[i], o); else arr.push(o); };
+  const ST_TH = { pending_slip: 'รอชำระเงิน / ส่งสลิป', slip_review: 'รอตรวจสลิป', paid: 'ชำระแล้ว รอคิวกรอก', in_progress: 'กำลังกรอก', done: 'กรอกเสร็จแล้ว', cancelled: 'ยกเลิก' };
+  // โหลดไฟล์ที่ใช้เฉพาะบางหน้า (ICD แนะนำ, QR) เมื่อจำเป็น
+  const libs = {};
+  function lib(src) {
+    if (!libs[src]) libs[src] = new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = src + '?v=4'; sc.charset = 'utf-8'; sc.onload = ok; sc.onerror = () => { delete libs[src]; bad(new Error('โหลดไฟล์ไม่สำเร็จ ลองใหม่')); }; document.head.appendChild(sc); });
+    return libs[src];
+  }
+  const showWho = () => { $('#who').textContent = S.me && S.me.user ? S.me.user.fullName.split(' ')[0] : ''; };
   const blockById = id => (S.dash && S.dash.blocks.find(b => b.blockId === id)) || null;
   const activeBlocks = () => (S.dash ? S.dash.blocks.filter(b => b.archived !== '1') : []).slice().reverse();
 
@@ -50,6 +106,7 @@
     const e = Object.assign({}, c, { setting: c.setting || b.setting, category: c.category || b.category, complexity: c.complexity || b.complexity, advisor: c.advisor || b.advisor, detail: c.detail || b.detail || '-' });
     Object.keys(CASE_REQ).forEach(k => { if (!e[k]) out.push(CASE_REQ[k]); });
     if (e.careStart && e.careEnd && e.careStart > e.careEnd) out.push('วันเริ่มดูแลอยู่หลังวันสิ้นสุด');
+    if (b.rotStart && b.rotEnd && b.rotStart > b.rotEnd) out.push('วันเริ่ม rotation อยู่หลังวันจบ (บล็อก)');
     return out;
   }
   const SETTING_BY_CODE = [[/^อย/, 'Medicine'], [/^ศธ/, 'Orthopedics'], [/^ศศ/, 'Surgery'], [/^กม/, 'Pediatrics'], [/^สน/, 'OB GYN'], [/^จษ/, 'Eye'], [/^สล/, 'ENT'], [/^วฟ/, 'Rehabilitation'], [/^พศก58/, 'Family Medicine'], [/^จว/, 'Psychiatry'], [/^ฉก|^ฉุก/, 'ER']];
@@ -66,7 +123,8 @@
   window.addEventListener('popstate', render);
   $('#backBtn').onclick = () => { if (history.length > 1) history.back(); else go('home'); };
 
-  async function render() {
+  async function render(quiet) {
+    const seq = ++viewSeq;
     const p = params();
     const page = p.p || 'home';
     $('#title').textContent = TITLES[page] || TITLES.home;
@@ -74,10 +132,11 @@
     document.querySelectorAll('.sticky-bottom').forEach(n => n.remove());
     if (!S.me.user && page !== 'register' && page !== 'admin') return go('register', {}, true);
     if (page === 'admin' && !S.me.isAdmin) { app.innerHTML = '<div class="card empty"><div class="ic"><i class="fas fa-lock"></i></div><b>ไม่มีสิทธิ์เข้าหน้านี้</b></div>'; return; }
-    app.innerHTML = '<div class="loading">กำลังโหลด</div>';
+    if (!quiet) app.innerHTML = '<div class="loading">กำลังโหลด</div>';
     try {
       await (PAGES[page] || PAGES.home)(p);
     } catch (e) {
+      if (seq !== viewSeq) return;   // ผู้ใช้เปลี่ยนหน้าไปแล้ว
       app.innerHTML = `<div class="card"><b>เกิดข้อผิดพลาด</b><div class="muted">${esc(e.message)}</div><div class="btns"><button class="btn" onclick="location.reload()">ลองใหม่</button></div></div>`;
     }
   }
@@ -102,7 +161,7 @@
 
   // ------------------------------------------------------------ หน้าแรก
   PAGES.home = async function () {
-    await loadDash();
+    await dash();
     const d = S.dash, blocks = activeBlocks(), archived = d.blocks.filter(b => b.archived === '1');
     const card = b => {
       const cs = d.cases.filter(c => c.blockId === b.blockId);
@@ -167,6 +226,7 @@
       busy(e.target, true);
       try {
         S.me.user = await api('register', { fullName: $('#fn').value, studentId: $('#sid').value, year });
+        saveCache(); showWho();
         toast('บันทึกแล้ว'); go('home', {}, true);
       } catch (err) { toast(err.message, true); busy(e.target, false); }
     };
@@ -174,7 +234,7 @@
 
   // ------------------------------------------------------------ ตั้งค่าบล็อก
   PAGES.block = async function (p) {
-    if (!S.dash) await loadDash();
+    await dash();
     fillAdvisorList();
     const b = p.id ? blockById(p.id) : null;
     if (p.id && !b) throw new Error('ไม่พบบล็อก');
@@ -220,7 +280,7 @@
     $('#advisor').oninput = () => $('#advisor').classList.remove('bad');
     $('#advisor').onblur = () => checkAdvisor($('#advisor'));
     if ($('#arch')) $('#arch').onclick = async () => {
-      try { await api('archiveBlock', { blockId: b.blockId, archived: b.archived !== '1' }); await loadDash(); toast('เรียบร้อย'); go('home', {}, true); }
+      try { const nb = await api('archiveBlock', { blockId: b.blockId, archived: b.archived !== '1' }); patchDash(d => upsert(d.blocks, 'blockId', nb)); toast('เรียบร้อย'); go('home', {}, true); }
       catch (err) { toast(err.message, true); }
     };
     bottom(`<button class="btn" id="save">บันทึกบล็อก</button>`);
@@ -236,7 +296,7 @@
       busy(e.target, true);
       try {
         const saved = await api('saveBlock', { block: blk });
-        await loadDash(); toast('บันทึกบล็อกแล้ว');
+        patchDash(d => upsert(d.blocks, 'blockId', saved)); toast('บันทึกบล็อกแล้ว');
         if (b) go('home', {}, true); else go('case', { block: saved.blockId }, true);
       } catch (err) { toast(err.message, true); busy(e.target, false); }
     };
@@ -244,8 +304,9 @@
 
   // ------------------------------------------------------------ เพิ่ม/แก้เคส
   PAGES.case = async function (p) {
-    if (!S.dash) await loadDash();
+    await dash();
     fillAdvisorList();
+    await lib('icd.js');
     const blocks = activeBlocks();
     const editing = p.id ? S.dash.cases.find(c => c.caseId === p.id) : null;
     if (p.id && !editing) throw new Error('ไม่พบเคส');
@@ -350,7 +411,7 @@
 
     if ($('#del')) $('#del').onclick = async () => {
       if (!confirm('ลบเคส HN ' + editing.hn + ' ?')) return;
-      try { await api('deleteCase', { caseId: editing.caseId }); await loadDash(); toast('ลบแล้ว'); history.back(); } catch (err) { toast(err.message, true); }
+      try { await api('deleteCase', { caseId: editing.caseId }); patchDash(d => { d.cases = d.cases.filter(x => x.caseId !== editing.caseId); }); toast('ลบแล้ว'); history.back(); } catch (err) { toast(err.message, true); }
     };
     if (locked) return;
 
@@ -363,7 +424,7 @@
         const saved = await api('saveCase', { case: c, allowDuplicate: !!allowDuplicate, draftId: draft ? draft.draftId : '' });
         if (draft) { draft = null; history.replaceState(null, '', location.pathname + '?p=case&block=' + encodeURIComponent(c.blockId)); }
         store.set('lastBlock', c.blockId); store.set('lastPt', c.ptType);
-        await loadDash();
+        patchDash(d => upsert(d.cases, 'caseId', saved));
         toast(saved.missing.length ? `บันทึกแล้ว (ยังขาด ${saved.missing.length} ช่อง)` : 'บันทึกแล้ว ครบทุกช่อง');
         busy(btn, false);
         if (again) {
@@ -384,7 +445,7 @@
 
   // ------------------------------------------------------------ รายการเคส
   PAGES.cases = async function (p) {
-    await loadDash();
+    await dash();
     const d = S.dash;
     const blocks = d.blocks.slice().reverse();
     let bid = p.block || (activeBlocks()[0] || {}).blockId || '';
@@ -413,7 +474,8 @@
 
   // ------------------------------------------------------------ สั่งกรอก + ชำระเงิน
   PAGES.order = async function (p) {
-    await loadDash();
+    await dash();
+    if (p.o && !S.dash.orders.some(x => x.orderId === p.o)) await loadDash();
     if (p.o) return payView(p.o);
     const d = S.dash;
     const blocks = activeBlocks().filter(b => d.cases.some(c => c.blockId === b.blockId && c.status === 'open'));
@@ -455,18 +517,21 @@
       try {
         const r = await api('createOrder', { blockId: bid, smartUser: $('#su').value.trim(), smartPass: $('#sp').value });
         $('#sp').value = '';
+        const ids = String(r.order.caseIds || '').split(',');
+        patchDash(d => { d.orders.unshift(Object.assign({ statusText: ST_TH[r.order.status] || r.order.status }, r.order)); d.cases.forEach(c => { if (ids.indexOf(c.caseId) >= 0) { c.status = 'ordered'; c.orderId = r.order.orderId; } }); });
         toast('สร้างงานแล้ว'); go('order', { o: r.order.orderId }, true);
       } catch (err) { toast(err.message, true); busy(e.target, false); }
     };
   };
 
-  function payView(orderId) {
+  async function payView(orderId) {
     const o = S.dash.orders.find(x => x.orderId === orderId);
     if (!o) throw new Error('ไม่พบงาน');
     const b = blockById(o.blockId) || {};
     const pay = S.me.pay, amt = Number(o.amount);
     let qr = '';
     if (pay.promptpayId && o.status === 'pending_slip') {
+      await Promise.all([lib('vendor/qrcode.js'), lib('promptpay.js')]);
       const q = qrcode(0, 'M'); q.addData(PromptPay.payload(pay.promptpayId, amt)); q.make();
       qr = `<div class="pp"><div class="pp-head">PromptPay</div><div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
         <div class="pp-foot"><b>${esc(pay.promptpayName)}</b><div class="muted small mono">${esc(pay.promptpayId)}</div></div></div>`;
@@ -492,7 +557,11 @@
     }
     if ($('#cancel')) $('#cancel').onclick = async () => {
       if (!confirm('ยกเลิกงาน ' + o.orderId + ' ? เคสจะกลับไปอยู่ในรายการ')) return;
-      try { await api('cancelOrder', { orderId: o.orderId }); toast('ยกเลิกแล้ว'); go('home', {}, true); } catch (err) { toast(err.message, true); }
+      try {
+        await api('cancelOrder', { orderId: o.orderId });
+        patchDash(d => { const x = d.orders.find(y => y.orderId === o.orderId); if (x) { x.status = 'cancelled'; x.statusText = ST_TH.cancelled; } d.cases.forEach(c => { if (c.orderId === o.orderId) { c.status = 'open'; c.orderId = ''; } }); });
+        toast('ยกเลิกแล้ว'); go('home', {}, true);
+      } catch (err) { toast(err.message, true); }
     };
   }
 
@@ -501,7 +570,18 @@
   PAGES.admin = async function (p) {
     if (p.o) return adminOrder(p.o);
     const f = p.f == null ? 'active' : p.f;
-    const list = await api('adminOrders', { status: f });
+    const key = 'L:' + f, seq = viewSeq;
+    if (AC[key]) {   // แสดงรายการเดิมทันที แล้วดึงใหม่เบื้องหลัง
+      drawAdminList(f, AC[key]);
+      api('adminOrders', { status: f }).then(l => { const ch = JSON.stringify(l) !== JSON.stringify(AC[key]); AC[key] = l; if (ch && seq === viewSeq) drawAdminList(f, l); }).catch(() => {});
+      return;
+    }
+    AC[key] = await api('adminOrders', { status: f });
+    if (seq === viewSeq) drawAdminList(f, AC[key]);
+  };
+  const AC = {};   // แคชหน้า admin (ในหน่วยความจำเท่านั้น ไม่เก็บลงเครื่อง)
+  function drawAdminList(f, list0) {
+    const list = list0.slice();
     const inLine = window.liff && liff.isInClient && liff.isInClient();
     const order = { slip_review: 0, paid: 1, in_progress: 2, pending_slip: 3 };
     if (f === 'active') list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
@@ -518,7 +598,7 @@
       const t = e.target.closest('[data-o]'); if (t) return go('admin', { o: t.dataset.o });
       if (e.target.id === 'ext') { e.preventDefault(); liff.openWindow({ url: location.href, external: true }); }
     };
-  };
+  }
 
   async function adminOrder(orderId) {
     const d = await api('adminOrderDetail', { orderId });
@@ -534,7 +614,9 @@
         <div class="muted small">${o.caseCount} เคส · ${Number(o.amount) || 0} บาท · สร้าง ${esc(o.createdAt)}${o.slipAt ? ' · สลิป ' + esc(o.slipAt) : ''}${o.approvedBy ? ' · อนุมัติโดย ' + esc(o.approvedBy) : ''}${o.assignee ? ' · ผู้รับงาน ' + esc(o.assignee) : ''}</div>
         ${o.note ? `<div class="box warnbox"><i class="fas fa-circle-exclamation"></i><div>${esc(o.note)}</div></div>` : ''}</div>
 
-      ${o.slipFileId ? `<div class="card slip"><div class="between"><b>สลิป</b><button class="btn sm light" id="loadSlip">ดูสลิป</button></div><div id="slipBox"></div></div>` : ''}
+      ${o.slipFileId ? `<div class="card slip"><div class="between"><b>สลิป</b>${d.slip ? '' : '<button class="btn sm light" id="loadSlip">ดูสลิป</button>'}</div>
+        ${o.slipCheck && o.slipCheck !== 'checking' ? `<div class="box ${o.slipCheck === 'pass' ? 'okbox' : 'warnbox'} small"><i class="fas fa-${o.slipCheck === 'pass' ? 'circle-check' : 'triangle-exclamation'}"></i><div><b>ตรวจอัตโนมัติ: ${esc({ pass: 'ผ่าน', flag: 'ต้องตรวจ', retry: 'รอธนาคาร ตรวจซ้ำอัตโนมัติ', noqr: 'ไม่พบ QR', manual: 'ตรวจอัตโนมัติไม่ได้' }[o.slipCheck] || o.slipCheck)}</b>${o.slipCheckNote ? '<br>' + esc(o.slipCheckNote) : ''}</div></div>` : ''}
+        <div id="slipBox">${d.slip ? `<img src="${d.slip}" alt="slip" style="margin-top:8px">` : ''}</div></div>` : ''}
 
       <div class="card"><b>ดำเนินการ</b><div class="btns">
         ${st === 'slip_review' ? btn('approve', '', '<i class="fas fa-circle-check"></i> สลิปถูกต้อง') + btn('reject', 'danger', '<i class="fas fa-xmark"></i> ไม่ผ่าน') : ''}
@@ -557,7 +639,7 @@
       ${st !== 'done' && st !== 'cancelled' ? `<button class="btn danger block" id="cancel"><i class="fas fa-ban"></i> ยกเลิกงาน (คืนเคสให้ผู้ใช้)</button>` : ''}`;
 
     const act = (id, fn) => { const n = $('#' + id); if (n) n.onclick = async () => { try { n.disabled = true; await fn(); } catch (err) { toast(err.message, true); n.disabled = false; } }; };
-    const reload = () => go('admin', { o: orderId }, true);
+    const reload = () => { Object.keys(AC).forEach(k => delete AC[k]); go('admin', { o: orderId }, true); };
     act('loadSlip', async () => { $('#slipBox').innerHTML = '<div class="muted">กำลังโหลด…</div>'; const src = await api('adminSlip', { orderId }); $('#slipBox').innerHTML = `<img src="${src}" alt="slip" style="margin-top:8px">`; });
     act('approve', async () => { if (st === 'pending_slip' && !confirm('อนุมัติโดยยังไม่มีสลิป?')) throw new Error('ยกเลิก'); await api('adminApprove', { orderId }); toast('อนุมัติแล้ว แจ้งผู้ใช้แล้ว'); reload(); });
     act('reject', async () => { const note = prompt('เหตุผลที่สลิปไม่ผ่าน (ส่งให้ผู้ใช้)', 'ยอดเงินไม่ตรง'); if (note == null) throw new Error('ยกเลิก'); await api('adminReject', { orderId, note }); toast('แจ้งผู้ใช้แล้ว'); reload(); });
@@ -577,24 +659,54 @@
         <div class="lbl" style="margin-top:10px">Password</div><div class="between" style="align-items:center"><span class="mono">${esc(c.smartPass)}</span><button class="btn sm light" data-cp="p"><i class="fas fa-copy"></i></button></div></div>`;
       $('#credBox').onclick = async e => { const t = e.target.closest('[data-cp]'); if (t) { await navigator.clipboard.writeText(t.dataset.cp === 'u' ? c.smartUser : c.smartPass); toast('คัดลอกแล้ว'); } };
     });
-    if (st === 'slip_review' && $('#loadSlip')) $('#loadSlip').click();
+    if (st === 'slip_review' && !d.slip && $('#loadSlip')) $('#loadSlip').click();
   }
 
   // ------------------------------------------------------------ boot
   async function boot() {
+    let ready, fail;
+    S.ready = new Promise((a, b) => { ready = a; fail = b; });
+    S.ready.catch(() => {});
+    // เปิดผ่าน liff.line.me รอบแรกจะมี liff.state แล้ว LINE พาไปหน้าจริงอีกรอบ → ไม่ต้องวาดจากแคชรอบนี้
+    const firstHop = /[?&]liff\.state=/.test(location.search);
+    const lastUid = store.get('smd:lastUid', '');
+    const cached = !firstHop && lastUid ? readCache(lastUid) : null;
+    let shown = false;
+    if (cached && cached.me) {   // วาดจากข้อมูลเดิมในเครื่องทันที ไม่ต้องรอ LINE/เซิร์ฟเวอร์
+      S.uid = lastUid; S.me = cached.me; S.dash = cached.dash || null; dashAt = Date.now();   // boot จะดึงใหม่ให้เอง
+      showWho(); render(); shown = true;
+    }
     try {
       if (C.MOCK_LIFF) {
         const uid = new URLSearchParams(location.search).get('mockUser') || store.get('mockUser', 'Ustu');
         store.set('mockUser', uid);
-        window.liff = { init: async () => {}, isLoggedIn: () => true, getIDToken: () => 'mock:' + uid + ':' + uid, isInClient: () => false, closeWindow: () => {}, openWindow: o => window.open(o.url) };
+        window.liff = { init: async () => {}, isLoggedIn: () => true, getIDToken: () => 'mock:' + uid + ':' + uid, getDecodedIDToken: () => ({ sub: uid }), isInClient: () => false, closeWindow: () => {}, openWindow: o => window.open(o.url) };
       }
       await liff.init({ liffId: C.LIFF_ID });
       if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
       S.idToken = liff.getIDToken();
-      S.me = await api('me');
-      $('#who').textContent = S.me.user ? S.me.user.fullName.split(' ')[0] : '';
-      render();
+      const tokUid = (liff.getDecodedIDToken && liff.getDecodedIDToken() || {}).sub || '';
+      ready();
+      const sameUser = !shown || !tokUid || tokUid === lastUid;
+      if (!sameUser) { S.me = null; S.dash = null; }
+      const before = JSON.stringify([S.me, S.dash]);
+      const m = mutSeq;
+      let r;
+      try { r = await api('boot'); }
+      catch (err) {   // Code.gs ตัวเก่ายังไม่มี boot → เรียกแบบเดิม 2 รอบ
+        if (!/unknown action/.test(err.message)) throw err;
+        const me = await api('me');
+        r = { me, dash: me.user ? await api('dashboard') : null };
+      }
+      S.uid = r.me.userId; store.set('smd:lastUid', S.uid);
+      S.me = r.me;
+      if (m === mutSeq) { if (r.dash) setDash(r.dash); else { S.dash = null; saveCache(); } }
+      showWho();
+      if (!shown || !sameUser) render();
+      else if (JSON.stringify([S.me, S.dash]) !== before) quietRerender(viewSeq);
     } catch (e) {
+      fail(e);
+      if (shown) return toast(e.message, true);
       app.innerHTML = `<div class="card"><b>เปิดไม่สำเร็จ</b><div class="muted">${esc(e.message)}</div><div class="btns"><button class="btn" onclick="location.reload()">ลองใหม่</button></div></div>`;
     }
   }
