@@ -26,7 +26,7 @@
     t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, err ? 4500 : 2200);
   }
-  function busy(btn, on) { if (!btn) return; btn.disabled = on; if (on) { btn.dataset.t = btn.textContent; btn.textContent = 'กำลังบันทึก…'; } else if (btn.dataset.t) btn.textContent = btn.dataset.t; }
+  function busy(btn, on) { if (!btn) return; btn.disabled = on; if (on) { btn.dataset.t = btn.innerHTML; btn.innerHTML = '<i class="fas fa-circle-notch spin"></i> กำลังบันทึก'; } else if (btn.dataset.t) btn.innerHTML = btn.dataset.t; }
 
   async function api(action, data) {
     const res = await fetch(C.API_URL, {
@@ -56,7 +56,7 @@
   const guessSetting = code => { const h = SETTING_BY_CODE.find(([re]) => re.test(code || '')); return h ? h[1] : ''; };
 
   // ------------------------------------------------------------ router
-  const TITLES = { home: 'Autofill SMARTMED', register: 'ลงทะเบียน', block: 'ตั้งค่าบล็อก', case: 'เคส', cases: 'เคสของฉัน', order: 'สั่งกรอก', admin: 'Admin' };
+  const TITLES = { home: 'StupidMED', register: 'ลงทะเบียน', block: 'ตั้งค่าบล็อก', case: 'เคส', cases: 'เคสของฉัน', order: 'สั่งกรอก', admin: 'Admin' };
   function go(page, p, replace) {
     const q = new URLSearchParams(Object.assign({ p: page }, p || {}));
     history[replace ? 'replaceState' : 'pushState'](null, '', location.pathname + '?' + q.toString());
@@ -73,8 +73,8 @@
     $('#backBtn').hidden = page === 'home';
     document.querySelectorAll('.sticky-bottom').forEach(n => n.remove());
     if (!S.me.user && page !== 'register' && page !== 'admin') return go('register', {}, true);
-    if (page === 'admin' && !S.me.isAdmin) { app.innerHTML = '<div class="empty">ไม่มีสิทธิ์เข้าหน้านี้</div>'; return; }
-    app.innerHTML = '<div class="loading">กำลังโหลด…</div>';
+    if (page === 'admin' && !S.me.isAdmin) { app.innerHTML = '<div class="card empty"><div class="ic"><i class="fas fa-lock"></i></div><b>ไม่มีสิทธิ์เข้าหน้านี้</b></div>'; return; }
+    app.innerHTML = '<div class="loading">กำลังโหลด</div>';
     try {
       await (PAGES[page] || PAGES.home)(p);
     } catch (e) {
@@ -107,28 +107,33 @@
     const card = b => {
       const cs = d.cases.filter(c => c.blockId === b.blockId);
       const open = cs.filter(c => c.status === 'open'), ready = open.filter(c => !c.missing.length);
+      const filled = cs.filter(c => c.status === 'filled').length;
+      const pct = cs.length ? Math.round(filled / cs.length * 100) : 0;
       return `<div class="card">
-        <div class="between"><div><b>${esc(b.course)}</b> ${esc(b.courseName)}<div class="muted">${range(b.rotStart, b.rotEnd)} · ${esc(optText(O.site, b.site))}</div></div>
-        <button class="btn sm ghost" data-edit="${b.blockId}">แก้</button></div>
-        <div class="stats"><div><b>${cs.length}</b><span>ทั้งหมด</span></div><div><b>${ready.length}/${open.length}</b><span>ครบ/ยังไม่สั่ง</span></div>
-        <div><b>${cs.filter(c => c.status === 'ordered').length}</b><span>สั่งแล้ว</span></div><div><b>${cs.filter(c => c.status === 'filled').length}</b><span>กรอกแล้ว</span></div></div>
-        <div class="btns"><button class="btn sm light" data-list="${b.blockId}">ดูเคส</button><button class="btn sm" data-add="${b.blockId}">+ เพิ่มเคส</button>
-        ${ready.length ? `<button class="btn sm wine" data-order="${b.blockId}">🚀 สั่งกรอก</button>` : ''}</div></div>`;
+        <div class="card-head"><div class="ic"><i class="fas fa-book-medical"></i></div>
+          <div style="flex:1;min-width:0"><div class="card-title">${esc(b.course)} <span style="font-weight:600">${esc(b.courseName)}</span></div>
+          <div class="muted small"><i class="fas fa-calendar-days"></i> ${range(b.rotStart, b.rotEnd)} · <i class="fas fa-location-dot"></i> ${esc(optText(O.site, b.site))}</div></div>
+          <button class="btn sm ghost" data-edit="${b.blockId}" aria-label="แก้บล็อก"><i class="fas fa-pen"></i></button></div>
+        <div class="stats"><div><b>${cs.length}</b><span>ทั้งหมด</span></div><div><b>${ready.length}<small style="font-size:13px;color:var(--text-3)">/${open.length}</small></b><span>ครบ/ยังไม่สั่ง</span></div>
+        <div><b>${cs.filter(c => c.status === 'ordered').length}</b><span>สั่งแล้ว</span></div><div><b style="color:var(--green-ink)">${filled}</b><span>กรอกแล้ว</span></div></div>
+        <div class="progress" title="กรอกแล้ว ${pct}%"><i style="width:${pct}%"></i></div>
+        <div class="btns"><button class="btn sm light" data-list="${b.blockId}"><i class="fas fa-list"></i> ดูเคส</button><button class="btn sm" data-add="${b.blockId}"><i class="fas fa-plus"></i> เพิ่มเคส</button>
+        ${ready.length ? `<button class="btn sm wine" data-order="${b.blockId}"><i class="fas fa-paper-plane"></i> สั่งกรอก</button>` : ''}</div></div>`;
     };
     const orders = d.orders.filter(o => o.status !== 'cancelled').slice(0, 5);
     app.innerHTML = `
-      ${S.me.isAdmin ? `<div class="card tap" data-go="admin"><div class="between"><b>🛠 หน้า Admin</b><span>›</span></div></div>` : ''}
-      <h2>บล็อก / rotation</h2>
-      ${blocks.length ? blocks.map(card).join('') : `<div class="card empty">ยังไม่มีบล็อก<br><span class="small">ตั้งค่าบล็อกครั้งเดียวต่อ rotation แล้วเพิ่มเคสได้เรื่อย ๆ</span><div class="btns"><button class="btn" data-go="block">⚙️ ตั้งค่าบล็อกแรก</button></div></div>`}
-      ${blocks.length ? `<button class="btn ghost block" data-go="block">+ เพิ่มบล็อกใหม่</button>` : ''}
-      ${orders.length ? `<h2>งานสั่งกรอก</h2><div class="card">${orders.map(o => {
+      ${S.me.isAdmin ? `<div class="card tap admin-link" data-go="admin"><div class="card-head"><div class="ic"><i class="fas fa-user-shield"></i></div><div style="flex:1"><div class="card-title" style="color:var(--purple)">หน้า Admin</div><div class="muted small">ตรวจสลิป · รับงาน · ดาวน์โหลด CSV</div></div><i class="fas fa-chevron-right chev"></i></div></div>` : ''}
+      <h2><i class="fas fa-layer-group"></i> บล็อก / rotation</h2>
+      ${blocks.length ? blocks.map(card).join('') : `<div class="card empty"><div class="ic"><i class="fas fa-layer-group"></i></div><b>ยังไม่มีบล็อก</b><span class="small">ตั้งค่าบล็อกครั้งเดียวต่อ rotation แล้วเพิ่มเคสได้เรื่อย ๆ</span><div class="btns"><button class="btn" data-go="block"><i class="fas fa-sliders"></i> ตั้งค่าบล็อกแรก</button></div></div>`}
+      ${blocks.length ? `<button class="btn ghost block" data-go="block"><i class="fas fa-plus"></i> เพิ่มบล็อกใหม่</button>` : ''}
+      ${orders.length ? `<h2><i class="fas fa-paper-plane"></i> งานสั่งกรอก</h2><div class="card">${orders.map(o => {
         const b = blockById(o.blockId) || {};
-        return `<div class="list-item"><div class="between"><div><b class="mono">${esc(o.orderId)}</b><div class="muted">${esc(b.course || '')} · ${o.caseCount} เคส${Number(o.amount) ? ' · ' + o.amount + ' บาท' : ''}</div>
+        return `<div class="list-item"><div class="between"><div><b class="mono" style="color:var(--navy);font-size:14px">${esc(o.orderId)}</b><div class="muted">${esc(b.course || '')} · ${o.caseCount} เคส${Number(o.amount) ? ' · ' + o.amount + ' บาท' : ''}</div>
           ${o.note ? `<div class="miss">${esc(o.note)}</div>` : ''}</div><span class="badge ${STATUS_BADGE[o.status] || ''}">${esc(o.statusText)}</span></div>
-          ${o.status === 'pending_slip' ? `<div class="btns"><button class="btn sm wine" data-pay="${o.orderId}">ชำระเงิน / ดู QR</button></div>` : ''}</div>`;
+          ${o.status === 'pending_slip' ? `<div class="btns"><button class="btn sm wine" data-pay="${o.orderId}"><i class="fas fa-qrcode"></i> ชำระเงิน / ดู QR</button></div>` : ''}</div>`;
       }).join('')}</div>` : ''}
       ${archived.length ? `<details><summary>บล็อกที่เก็บแล้ว (${archived.length})</summary>${archived.map(card).join('')}</details>` : ''}
-      <p class="muted small" style="text-align:center;margin-top:24px">${esc(S.me.user.fullName)} · ปี ${esc(S.me.user.year)} · <a href="#" data-go="register">แก้ข้อมูล</a></p>`;
+      <p class="foot"><i class="fas fa-user"></i> ${esc(S.me.user.fullName)} · ปี ${esc(S.me.user.year)} · <a href="#" data-go="register">แก้ข้อมูล</a></p>`;
     app.onclick = e => {
       const t = e.target.closest('[data-go],[data-edit],[data-list],[data-add],[data-order],[data-pay]');
       if (!t) return;
@@ -140,7 +145,7 @@
       else if (t.dataset.order) go('order', { block: t.dataset.order });
       else if (t.dataset.pay) go('order', { o: t.dataset.pay });
     };
-    if (blocks.length) bottom(`<button class="btn" id="bAdd">+ เพิ่มเคส</button><button class="btn wine" id="bOrder">🚀 สั่งกรอก</button>`);
+    if (blocks.length) bottom(`<button class="btn" id="bAdd"><i class="fas fa-plus"></i> เพิ่มเคส</button><button class="btn wine" id="bOrder"><i class="fas fa-paper-plane"></i> สั่งกรอก</button>`);
     if ($('#bAdd')) { $('#bAdd').onclick = () => go('case'); $('#bOrder').onclick = () => go('order'); }
   };
 
@@ -192,7 +197,7 @@
         <div><label>วันจบ rotation <span class="req">*</span></label><input type="date" id="rotEnd" value="${esc(v.rotEnd)}"></div></div>
       <label>สถานปฏิบัติงาน <span class="req">*</span></label><select id="site">${options(O.site, v.site, '— เลือก —')}</select>
     </div>
-    <h2>ค่าเริ่มต้นของทุกเคสในบล็อกนี้</h2>
+    <h2><i class="fas fa-sliders"></i> ค่าเริ่มต้นของทุกเคสในบล็อกนี้</h2>
     <div class="card">
       <div class="muted small">เคสไหนไม่ได้ระบุ จะใช้ค่าเหล่านี้</div>
       <label>Clinical setting</label><select id="setting">${options(O.setting, v.setting, '— เลือก —')}</select>
@@ -204,7 +209,7 @@
       <label class="check"><input type="checkbox" id="logBook"${v.logBook === '1' ? ' checked' : ''}> เก็บ log book</label>
       <label class="check"><input type="checkbox" id="epa"${v.epa === '1' ? ' checked' : ''}> เก็บ EPA</label>
     </div>
-    ${b ? `<button class="btn ghost block" id="arch">${b.archived === '1' ? 'นำบล็อกกลับมาใช้' : 'เก็บบล็อกนี้ (จบ rotation แล้ว)'}</button>` : ''}`;
+    ${b ? `<button class="btn ghost block" id="arch"><i class="fas fa-box-archive"></i> ${b.archived === '1' ? 'นำบล็อกกลับมาใช้' : 'เก็บบล็อกนี้ (จบ rotation แล้ว)'}</button>` : ''}`;
     let settingAuto = !v.setting;
     $('#course').onchange = () => {
       const val = $('#course').value;
@@ -246,7 +251,7 @@
     if (p.id && !editing) throw new Error('ไม่พบเคส');
     if (!blocks.length && !editing) {
       app.onclick = null;
-      app.innerHTML = `<div class="card empty">ต้องตั้งค่าบล็อกก่อนเพิ่มเคส<div class="btns"><button class="btn" id="gb">⚙️ ตั้งค่าบล็อก</button></div></div>`;
+      app.innerHTML = `<div class="card empty"><div class="ic"><i class="fas fa-layer-group"></i></div><b>ต้องตั้งค่าบล็อกก่อนเพิ่มเคส</b><div class="btns"><button class="btn" id="gb"><i class="fas fa-sliders"></i> ตั้งค่าบล็อก</button></div></div>`;
       $('#gb').onclick = () => go('block', {}, true);
       return;
     }
@@ -259,7 +264,7 @@
 
     app.onclick = null;
     app.innerHTML = `
-      ${locked ? `<div class="warnbox">เคสนี้อยู่ในงาน ${esc(editing.orderId)} แล้ว — แก้ไม่ได้ (ถ้าต้องแก้ ให้ยกเลิกงานก่อน)</div>` : ''}
+      ${locked ? `<div class="box warnbox"><i class="fas fa-lock"></i><div>เคสนี้อยู่ในงาน ${esc(editing.orderId)} แล้ว แก้ไม่ได้ ถ้าต้องแก้ ให้ยกเลิกงานก่อน</div></div>` : ''}
       <div class="card">
         <label>บล็อก</label><select id="block">${blockList.map(b => `<option value="${b.blockId}"${b.blockId === blockId ? ' selected' : ''}>${esc(b.course)} ${esc(b.courseName)} (${range(b.rotStart, b.rotEnd)})</option>`).join('')}</select>
         <div class="hint" id="blockInfo"></div>
@@ -282,8 +287,8 @@
           <div class="row"><div><label>Category</label><select id="category"></select></div><div><label>Complexity</label><select id="complexity"></select></div></div>
         </details>
       </div>
-      <div class="warnbox" id="missBox" hidden></div>
-      ${editing && !locked ? `<button class="btn ghost block" id="del" style="color:var(--bad);border-color:var(--bad)">ลบเคสนี้</button>` : ''}`;
+      <div class="box warnbox" id="missBox" hidden></div>
+      ${editing && !locked ? `<button class="btn danger block" id="del"><i class="fas fa-trash"></i> ลบเคสนี้</button>` : ''}`;
 
     const blk = () => blockById($('#block').value) || {};
     function syncBlock() {
@@ -304,7 +309,7 @@
     function refreshMissing() {
       const m = missing(current(), blk());
       $('#missBox').hidden = !m.length;
-      $('#missBox').textContent = 'ยังขาด: ' + m.join(', ') + ' — บันทึกไว้ก่อนได้ แต่จะสั่งกรอกได้เมื่อครบ';
+      $('#missBox').innerHTML = '<i class="fas fa-triangle-exclamation"></i><div>ยังขาด: ' + esc(m.join(', ')) + '<br><span class="small">บันทึกไว้ก่อนได้ แต่จะสั่งกรอกได้เมื่อครบ</span></div>';
     }
     function setIcd(code, auto) {
       $('#icd').value = code; icdAuto = auto; $('#icd').classList.toggle('auto', auto);
@@ -353,7 +358,7 @@
         const saved = await api('saveCase', { case: c, allowDuplicate: !!allowDuplicate });
         store.set('lastBlock', c.blockId); store.set('lastPt', c.ptType);
         await loadDash();
-        toast(saved.missing.length ? `บันทึกแล้ว (ยังขาด ${saved.missing.length} ช่อง)` : 'บันทึกแล้ว ✓ ครบทุกช่อง');
+        toast(saved.missing.length ? `บันทึกแล้ว (ยังขาด ${saved.missing.length} ช่อง)` : 'บันทึกแล้ว ครบทุกช่อง');
         busy(btn, false);
         if (again) {
           ['hn', 'dx', 'icd', 'detail', 'advisor'].forEach(id => { $('#' + id).value = ''; $('#' + id).classList.remove('auto', 'bad'); });
@@ -380,22 +385,22 @@
     function draw() {
       const b = blockById(bid);
       const cs = d.cases.filter(c => c.blockId === bid).sort((a, x) => (x.careStart || '').localeCompare(a.careStart || ''));
-      const badge = c => c.status === 'filled' ? '<span class="badge ok">กรอกแล้ว ✓</span>' : c.status === 'ordered' ? '<span class="badge">สั่งแล้ว</span>'
+      const badge = c => c.status === 'filled' ? '<span class="badge ok">กรอกแล้ว</span>' : c.status === 'ordered' ? '<span class="badge">สั่งแล้ว</span>'
         : c.missing.length ? `<span class="badge warn">ขาด ${c.missing.length}</span>` : '<span class="badge ok">ครบ</span>';
       app.innerHTML = `
         <select id="bsel">${blocks.map(x => `<option value="${x.blockId}"${x.blockId === bid ? ' selected' : ''}>${esc(x.course)} ${esc(x.courseName)}${x.archived === '1' ? ' (เก็บแล้ว)' : ''}</option>`).join('')}</select>
-        <div class="muted small" style="margin:6px 0 10px">${b ? range(b.rotStart, b.rotEnd) + ' · ' + cs.length + ' เคส' : ''}</div>
-        ${cs.length ? `<div class="card">${cs.map(c => `<div class="list-item tap" data-id="${c.caseId}" style="cursor:pointer">
-          <div class="between"><div><b>HN ${esc(c.hn)}</b> <span class="muted">· ${esc(c.ptType === 'ผู้ป่วยนอก' ? 'OPD' : 'IPD')} · ${range(c.careStart, c.careEnd)}</span>
-          <div>${esc(c.diagnosis || '—')} ${c.icd10 ? `<span class="muted mono">(${esc(c.icd10)})</span>` : ''}</div>
-          ${c.status === 'open' && c.missing.length ? `<div class="miss">ขาด: ${esc(c.missing.join(', '))}</div>` : ''}</div>${badge(c)}</div></div>`).join('')}</div>`
-          : `<div class="card empty">ยังไม่มีเคสในบล็อกนี้</div>`}`;
+        <div class="muted small" style="margin:8px 2px 12px">${b ? '<i class="fas fa-calendar-days"></i> ' + range(b.rotStart, b.rotEnd) + ' · ' + cs.length + ' เคส' : ''}</div>
+        ${cs.length ? `<div class="card">${cs.map(c => `<div class="list-item tap ${c.status === 'filled' ? 'done' : c.status === 'open' && c.missing.length ? 'hl' : ''}" data-id="${c.caseId}">
+          <div class="between"><div style="min-width:0"><span class="hn">HN ${esc(c.hn)}</span> <span class="tag">${esc(c.ptType === 'ผู้ป่วยนอก' ? 'OPD' : 'IPD')}</span> <span class="muted small">${range(c.careStart, c.careEnd)}</span>
+          <div style="margin-top:2px">${esc(c.diagnosis || '—')} ${c.icd10 ? `<code class="mono pill">${esc(c.icd10)}</code>` : ''}</div>
+          ${c.status === 'open' && c.missing.length ? `<div class="miss"><i class="fas fa-triangle-exclamation"></i>ขาด: ${esc(c.missing.join(', '))}</div>` : ''}</div>${badge(c)}</div></div>`).join('')}</div>`
+          : `<div class="card empty"><div class="ic"><i class="fas fa-notes-medical"></i></div><b>ยังไม่มีเคสในบล็อกนี้</b></div>`}`;
       $('#bsel').onchange = () => { bid = $('#bsel').value; history.replaceState(null, '', '?p=cases&block=' + bid); draw(); };
     }
-    if (!blocks.length) { app.innerHTML = '<div class="card empty">ยังไม่มีบล็อก</div>'; return; }
+    if (!blocks.length) { app.innerHTML = '<div class="card empty"><div class="ic"><i class="fas fa-layer-group"></i></div><b>ยังไม่มีบล็อก</b></div>'; return; }
     draw();
     app.onclick = e => { const t = e.target.closest('[data-id]'); if (t) go('case', { id: t.dataset.id }); };
-    bottom(`<button class="btn" id="add">+ เพิ่มเคส</button><button class="btn wine" id="ord">🚀 สั่งกรอก</button>`);
+    bottom(`<button class="btn" id="add"><i class="fas fa-plus"></i> เพิ่มเคส</button><button class="btn wine" id="ord"><i class="fas fa-paper-plane"></i> สั่งกรอก</button>`);
     $('#add').onclick = () => go('case', { block: bid });
     $('#ord').onclick = () => go('order', { block: bid });
   };
@@ -406,16 +411,16 @@
     if (p.o) return payView(p.o);
     const d = S.dash;
     const blocks = activeBlocks().filter(b => d.cases.some(c => c.blockId === b.blockId && c.status === 'open'));
-    if (!blocks.length) { app.onclick = null; app.innerHTML = '<div class="card empty">ยังไม่มีเคสที่รอสั่งกรอก<br><span class="small">เพิ่มเคสก่อน แล้วค่อยกลับมาสั่ง</span></div>'; return; }
+    if (!blocks.length) { app.onclick = null; app.innerHTML = '<div class="card empty"><div class="ic"><i class="fas fa-inbox"></i></div><b>ยังไม่มีเคสที่รอสั่งกรอก</b><span class="small">เพิ่มเคสก่อน แล้วค่อยกลับมาสั่ง</span></div>'; return; }
     let bid = blocks.some(b => b.blockId === p.block) ? p.block : blocks[0].blockId;
     const pay = S.me.pay;
     app.onclick = null;
     app.innerHTML = `<div class="card"><label>เลือกบล็อก</label><select id="bsel">${blocks.map(b => `<option value="${b.blockId}"${b.blockId === bid ? ' selected' : ''}>${esc(b.course)} ${esc(b.courseName)}</option>`).join('')}</select><div id="sum"></div></div>
-      <h2>บัญชี SMART</h2>
+      <h2><i class="fas fa-key"></i> บัญชี SMART</h2>
       <div class="card">
         <div class="muted small">ทีมงานใช้บัญชีนี้ login เข้า SMART เพื่อกรอกเคสตามรายการด้านบนเท่านั้น และลบออกจากระบบเมื่องานเสร็จ</div>
         <label>Username <span class="req">*</span></label><input id="su" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <label>Password <span class="req">*</span></label><div class="row"><input id="sp" type="password" autocomplete="off"><button type="button" class="btn sm ghost" id="eye" style="flex:0 0 auto">แสดง</button></div>
+        <label>Password <span class="req">*</span></label><div class="row"><input id="sp" type="password" autocomplete="off"><button type="button" class="btn sm ghost" id="eye" style="flex:0 0 auto"><i class="fas fa-eye"></i></button></div>
         <label class="check"><input type="checkbox" id="agree"> ยินยอมให้ทีมงานใช้บัญชีนี้กรอกเคสให้</label>
       </div>`;
     function sum() {
@@ -425,7 +430,7 @@
       const pend = d.orders.find(o => o.blockId === bid && ['pending_slip', 'slip_review'].includes(o.status));
       const price = Math.max(pay.minPrice, ready.length * pay.pricePerCase);
       $('#sum').innerHTML = `<div class="muted small" style="margin-top:6px">${range(b.rotStart, b.rotEnd)} · ${esc(optText(O.site, b.site))}</div>
-        ${pend ? `<div class="warnbox">บล็อกนี้มีงาน ${esc(pend.orderId)} ที่ยัง${esc(pend.statusText)}อยู่ <a href="#" data-pay="${pend.orderId}">ดูงาน</a></div>` : ''}
+        ${pend ? `<div class="box warnbox"><i class="fas fa-clock"></i><div>บล็อกนี้มีงาน ${esc(pend.orderId)} ที่ยัง${esc(pend.statusText)}อยู่ <a href="#" data-pay="${pend.orderId}">ดูงาน</a></div></div>` : ''}
         <div class="list-item"><b>${ready.length} เคสที่ครบ</b> จะถูกส่งกรอก${price ? ` · <b>${price} บาท</b>` : ''}
           <div class="muted small">${ready.map(c => 'HN ' + esc(c.hn)).join(', ') || '—'}</div></div>
         ${notReady.length ? `<div class="list-item"><span class="badge warn">ยังไม่ครบ ${notReady.length} เคส</span> <span class="muted small">— ไม่ถูกส่งรอบนี้</span>
@@ -436,7 +441,7 @@
     sum();
     $('#bsel').onchange = () => { bid = $('#bsel').value; sum(); };
     $('#sum').onclick = e => { const t = e.target.closest('[data-pay]'); if (t) { e.preventDefault(); go('order', { o: t.dataset.pay }); } };
-    $('#eye').onclick = () => { const i = $('#sp'); i.type = i.type === 'password' ? 'text' : 'password'; $('#eye').textContent = i.type === 'password' ? 'แสดง' : 'ซ่อน'; };
+    $('#eye').onclick = () => { const i = $('#sp'); i.type = i.type === 'password' ? 'text' : 'password'; $('#eye').innerHTML = i.type === 'password' ? '<i class="fas fa-eye"></i>' : '<i class="fas fa-eye-slash"></i>'; };
     $('#go').onclick = async e => {
       if (!$('#su').value.trim() || !$('#sp').value) return toast('กรอก username / password ของ SMART', true);
       if (!$('#agree').checked) return toast('ติ๊กยินยอมก่อน', true);
@@ -457,23 +462,23 @@
     let qr = '';
     if (pay.promptpayId && o.status === 'pending_slip') {
       const q = qrcode(0, 'M'); q.addData(PromptPay.payload(pay.promptpayId, amt)); q.make();
-      qr = `<div class="pp-head">PromptPay</div><div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
-        <div style="text-align:center"><b>${esc(pay.promptpayName)}</b><div class="muted small">${esc(pay.promptpayId)}</div></div>`;
+      qr = `<div class="pp"><div class="pp-head">PromptPay</div><div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
+        <div class="pp-foot"><b>${esc(pay.promptpayName)}</b><div class="muted small mono">${esc(pay.promptpayId)}</div></div></div>`;
     }
     app.onclick = null;
-    app.innerHTML = `<div class="card"><div class="between"><div><b class="mono">${esc(o.orderId)}</b><div class="muted">${esc(b.course || '')} ${esc(b.courseName || '')} · ${o.caseCount} เคส</div></div>
+    app.innerHTML = `<div class="card"><div class="between"><div><b class="mono" style="color:var(--navy);font-size:14px">${esc(o.orderId)}</b><div class="muted">${esc(b.course || '')} ${esc(b.courseName || '')} · ${o.caseCount} เคส</div></div>
       <span class="badge ${STATUS_BADGE[o.status] || ''}">${esc(o.statusText)}</span></div>
-      ${o.note ? `<div class="warnbox">${esc(o.note)}</div>` : ''}</div>
+      ${o.note ? `<div class="box warnbox"><i class="fas fa-circle-exclamation"></i><div>${esc(o.note)}</div></div>` : ''}</div>
       ${o.status === 'pending_slip' ? `
         <div class="card">
           <div style="text-align:center">${amt ? `<div class="muted">ยอดชำระ</div><div class="big">${amt.toLocaleString()} บาท</div>` : '<div class="muted">โอนตามยอดที่ตกลงกับทีมงาน</div>'}</div>
-          ${qr || '<div class="warnbox">ยังไม่ได้ตั้งค่าบัญชีรับเงิน — ติดต่อทีมงาน</div>'}
-          ${pay.note ? `<div class="infobox">${esc(pay.note)}</div>` : ''}
-          <div class="infobox"><b>ขั้นต่อไป:</b> แคปหน้าจอ QR นี้ → โอนผ่านแอปธนาคาร → <b>ส่งรูปสลิปในแชท LINE นี้</b> ระบบจะผูกสลิปกับงานให้เอง</div>
+          ${qr || '<div class="box warnbox"><i class="fas fa-circle-exclamation"></i><div>ยังไม่ได้ตั้งค่าบัญชีรับเงิน ติดต่อทีมงาน</div></div>'}
+          ${pay.note ? `<div class="box infobox"><i class="fas fa-circle-info"></i><div>${esc(pay.note)}</div></div>` : ''}
+          <div class="box infobox"><i class="fas fa-receipt"></i><div><b>ขั้นต่อไป</b><ol class="steps"><li>แคปหน้าจอ QR นี้</li><li>โอนผ่านแอปธนาคาร</li><li><b>ส่งรูปสลิปในแชท LINE นี้</b> ระบบผูกสลิปกับงานให้เอง</li></ol></div></div>
         </div>` : ''}
-      ${o.status === 'slip_review' ? '<div class="infobox">ได้รับสลิปแล้ว รอทีมงานตรวจ จะแจ้งในแชทครับ</div>' : ''}
-      ${o.status === 'paid' || o.status === 'in_progress' ? '<div class="infobox">ชำระเงินแล้ว งานอยู่ในคิวกรอก</div>' : ''}
-      ${o.status === 'pending_slip' ? '<button class="btn ghost block" id="cancel">ยกเลิกงานนี้</button>' : ''}`;
+      ${o.status === 'slip_review' ? '<div class="box infobox"><i class="fas fa-hourglass-half"></i><div>ได้รับสลิปแล้ว รอทีมงานตรวจ จะแจ้งในแชทครับ</div></div>' : ''}
+      ${o.status === 'paid' || o.status === 'in_progress' ? '<div class="box okbox"><i class="fas fa-circle-check"></i><div>ชำระเงินแล้ว งานอยู่ในคิวกรอก</div></div>' : ''}
+      ${o.status === 'pending_slip' ? '<button class="btn danger block" id="cancel"><i class="fas fa-ban"></i> ยกเลิกงานนี้</button>' : ''}`;
     const inLine = window.liff && liff.isInClient && liff.isInClient();
     if (o.status === 'pending_slip' || o.status === 'slip_review') {
       bottom(`<button class="btn" id="chat">${inLine ? 'กลับไปแชทเพื่อส่งสลิป' : 'กลับหน้าแรก'}</button>`);
@@ -495,13 +500,13 @@
     const order = { slip_review: 0, paid: 1, in_progress: 2, pending_slip: 3 };
     if (f === 'active') list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
     app.innerHTML = `
-      ${inLine ? `<div class="infobox">ดาวน์โหลด CSV สะดวกกว่าบนคอม — <a href="#" id="ext">เปิดในเบราว์เซอร์</a></div>` : ''}
+      ${inLine ? `<div class="box infobox"><i class="fas fa-desktop"></i><div>ดาวน์โหลด CSV สะดวกกว่าบนคอม <a href="#" id="ext">เปิดในเบราว์เซอร์</a></div></div>` : ''}
       <div class="filters">${ADMIN_FILTERS.map(([k, t]) => `<button class="chip${k === f ? ' on' : ''}" data-f="${k}">${t}</button>`).join('')}</div>
       ${list.length ? list.map(o => `<div class="card tap" data-o="${esc(o.orderId)}">
-        <div class="between"><div><b class="mono">${esc(o.orderId)}</b> <span class="badge ${STATUS_BADGE[o.status] || ''}">${esc(o.statusText)}</span>
+        <div class="between"><div><b class="mono" style="color:var(--navy);font-size:14px">${esc(o.orderId)}</b> <span class="badge ${STATUS_BADGE[o.status] || ''}">${esc(o.statusText)}</span>
         <div><b>${esc(o.userName)}</b> <span class="muted">ปี ${esc(o.year)}${o.studentId ? ' · ' + esc(o.studentId) : ''}</span></div>
         <div class="muted small">${esc(o.course)} ${esc(o.courseName)} · ${o.caseCount} เคส · ${Number(o.amount) || 0} บาท</div>
-        ${o.assignee ? `<div class="muted small">👤 ${esc(o.assignee)}</div>` : ''}</div><span>›</span></div></div>`).join('') : '<div class="card empty">ไม่มีงาน</div>'}`;
+        ${o.assignee ? `<div class="muted small"><i class="fas fa-user-check"></i> ${esc(o.assignee)}</div>` : ''}</div><i class="fas fa-chevron-right chev"></i></div></div>`).join('') : '<div class="card empty"><div class="ic"><i class="fas fa-mug-hot"></i></div><b>ไม่มีงาน</b></div>'}`;
     app.onclick = e => {
       const c = e.target.closest('[data-f]'); if (c) return go('admin', { f: c.dataset.f }, true);
       const t = e.target.closest('[data-o]'); if (t) return go('admin', { o: t.dataset.o });
@@ -519,31 +524,31 @@
     app.innerHTML = `
       <div class="card"><div class="between"><div><b>${esc(u.fullName || u.displayName || o.userId)}</b><div class="muted">ปี ${esc(u.year)} · ${esc(u.studentId || '—')}</div></div>
         <span class="badge ${STATUS_BADGE[st] || ''}">${esc(o.statusText)}</span></div>
-        <div class="list-item"><b>${esc(b.course)}</b> ${esc(b.courseName)}<div class="muted small">rotation ${range(b.rotStart, b.rotEnd)} · ${esc(optText(O.site, b.site))} · ${esc(b.setting)} · log book ${b.logBook === '1' ? '✓' : '✗'} · EPA ${b.epa === '1' ? '✓' : '✗'}</div></div>
-        <div class="muted small">${o.caseCount} เคส · ${Number(o.amount) || 0} บาท · สร้าง ${esc(o.createdAt)}${o.slipAt ? ' · สลิป ' + esc(o.slipAt) : ''}${o.approvedBy ? ' · อนุมัติโดย ' + esc(o.approvedBy) : ''}${o.assignee ? ' · 👤 ' + esc(o.assignee) : ''}</div>
-        ${o.note ? `<div class="warnbox">${esc(o.note)}</div>` : ''}</div>
+        <div class="list-item"><b>${esc(b.course)}</b> ${esc(b.courseName)}<div class="muted small">rotation ${range(b.rotStart, b.rotEnd)} · ${esc(optText(O.site, b.site))} · ${esc(b.setting)} · log book ${b.logBook === '1' ? 'เก็บ' : 'ไม่เก็บ'} · EPA ${b.epa === '1' ? 'เก็บ' : 'ไม่เก็บ'}</div></div>
+        <div class="muted small">${o.caseCount} เคส · ${Number(o.amount) || 0} บาท · สร้าง ${esc(o.createdAt)}${o.slipAt ? ' · สลิป ' + esc(o.slipAt) : ''}${o.approvedBy ? ' · อนุมัติโดย ' + esc(o.approvedBy) : ''}${o.assignee ? ' · ผู้รับงาน ' + esc(o.assignee) : ''}</div>
+        ${o.note ? `<div class="box warnbox"><i class="fas fa-circle-exclamation"></i><div>${esc(o.note)}</div></div>` : ''}</div>
 
       ${o.slipFileId ? `<div class="card slip"><div class="between"><b>สลิป</b><button class="btn sm light" id="loadSlip">ดูสลิป</button></div><div id="slipBox"></div></div>` : ''}
 
       <div class="card"><b>ดำเนินการ</b><div class="btns">
-        ${st === 'slip_review' ? btn('approve', 'green', '✅ สลิปถูกต้อง') + btn('reject', 'ghost', '❌ ไม่ผ่าน') : ''}
+        ${st === 'slip_review' ? btn('approve', '', '<i class="fas fa-circle-check"></i> สลิปถูกต้อง') + btn('reject', 'danger', '<i class="fas fa-xmark"></i> ไม่ผ่าน') : ''}
         ${st === 'pending_slip' ? btn('approve', 'ghost', 'อนุมัติโดยไม่มีสลิป') : ''}
-        ${st === 'paid' ? btn('claim', '', '🙋 รับงานนี้') : ''}
-        ${st === 'paid' || st === 'in_progress' ? btn('done', 'green', '✔ กรอกเสร็จแล้ว (ปิดงาน)') : ''}
-        ${st === 'in_progress' ? btn('release', 'ghost', 'ปล่อยงาน') : ''}
+        ${st === 'paid' ? btn('claim', '', '<i class="fas fa-hand"></i> รับงานนี้') : ''}
+        ${st === 'paid' || st === 'in_progress' ? btn('done', 'green', '<i class="fas fa-check-double"></i> กรอกเสร็จแล้ว (ปิดงาน)') : ''}
+        ${st === 'in_progress' ? btn('release', 'ghost', '<i class="fas fa-rotate-left"></i> ปล่อยงาน') : ''}
       </div></div>
 
       ${st === 'paid' || st === 'in_progress' ? `<div class="card"><b>ไฟล์และบัญชี</b>
-        <div class="btns">${btn('dl', '', '⬇️ ดาวน์โหลด CSV')}${btn('copy', 'light', 'คัดลอก CSV')}</div>
-        <div class="btns">${d.hasCred ? btn('cred', 'wine', '🔑 แสดงบัญชี SMART') : '<span class="muted">ไม่มีข้อมูลบัญชี</span>'}</div><div id="credBox"></div>
-        <div class="infobox small"><b>ขั้นตอนกรอก</b><br>1) เปิด Chrome profile สำหรับลูกค้า → login SMART ด้วยบัญชีด้านบน<br>2) เปิดเมนู "บันทึกผู้ป่วยใน/ผู้ป่วยนอก"<br>3) Autofill StupidMED → นำเข้า CSV → ตรวจ → รันออโต้<br>4) ตรวจในตาราง SMART ครบ → logout → กด "กรอกเสร็จแล้ว"</div></div>` : ''}
+        <div class="btns">${btn('dl', '', '<i class="fas fa-file-arrow-down"></i> ดาวน์โหลด CSV')}${btn('copy', 'light', '<i class="fas fa-copy"></i> คัดลอก CSV')}</div>
+        <div class="btns">${d.hasCred ? btn('cred', 'wine', '<i class="fas fa-key"></i> แสดงบัญชี SMART') : '<span class="muted">ไม่มีข้อมูลบัญชี</span>'}</div><div id="credBox"></div>
+        <div class="box infobox small"><i class="fas fa-list-check"></i><div><b>ขั้นตอนกรอก</b><ol class="steps"><li>เปิด Chrome profile สำหรับลูกค้า แล้ว login SMART ด้วยบัญชีด้านบน</li><li>เปิดเมนู "บันทึกผู้ป่วยใน/ผู้ป่วยนอก"</li><li>Autofill StupidMED: นำเข้า CSV, ตรวจ, รันออโต้</li><li>ตรวจในตาราง SMART ว่าครบ แล้ว logout และกด "กรอกเสร็จแล้ว"</li></ol></div></div></div>` : ''}
 
       <div class="card"><b>เคส (${d.cases.length})</b>
         <table class="cases"><tr><th>#</th><th>HN / วันที่</th><th>Dx / ICD</th><th>อาจารย์</th></tr>
         ${d.cases.map((c, i) => `<tr><td>${i + 1}</td><td><b>${esc(c.hn)}</b><br><span class="muted">${esc(c.ptType === 'ผู้ป่วยนอก' ? 'OPD' : 'IPD')} ${range(c.careStart, c.careEnd)}</span></td>
           <td>${esc(c.diagnosis)}<br><span class="mono muted">${esc(c.icd10)} · กลุ่ม ${esc(c.diseaseGroup)}</span>${c.missing.length ? `<div class="miss">ขาด: ${esc(c.missing.join(', '))}</div>` : ''}</td>
           <td class="small">${esc(c.advisor || b.advisor)}</td></tr>`).join('')}</table></div>
-      ${st !== 'done' && st !== 'cancelled' ? `<button class="btn ghost block" id="cancel" style="color:var(--bad);border-color:var(--bad)">ยกเลิกงาน (คืนเคสให้ผู้ใช้)</button>` : ''}`;
+      ${st !== 'done' && st !== 'cancelled' ? `<button class="btn danger block" id="cancel"><i class="fas fa-ban"></i> ยกเลิกงาน (คืนเคสให้ผู้ใช้)</button>` : ''}`;
 
     const act = (id, fn) => { const n = $('#' + id); if (n) n.onclick = async () => { try { n.disabled = true; await fn(); } catch (err) { toast(err.message, true); n.disabled = false; } }; };
     const reload = () => go('admin', { o: orderId }, true);
@@ -562,8 +567,8 @@
     act('copy', async () => { await navigator.clipboard.writeText(d.csv.replace(/^﻿/, '')); toast('คัดลอกแล้ว'); $('#copy').disabled = false; });
     act('cred', async () => {
       const c = await api('adminCred', { orderId });
-      $('#credBox').innerHTML = `<div class="cred" style="margin-top:10px"><div class="muted small" style="color:#a0aec0">Username</div><div class="between"><span class="mono">${esc(c.smartUser)}</span><button class="btn sm light" data-cp="u">คัดลอก</button></div>
-        <div class="muted small" style="color:#a0aec0;margin-top:8px">Password</div><div class="between"><span class="mono">${esc(c.smartPass)}</span><button class="btn sm light" data-cp="p">คัดลอก</button></div></div>`;
+      $('#credBox').innerHTML = `<div class="cred"><div class="lbl">Username</div><div class="between" style="align-items:center"><span class="mono">${esc(c.smartUser)}</span><button class="btn sm light" data-cp="u"><i class="fas fa-copy"></i></button></div>
+        <div class="lbl" style="margin-top:10px">Password</div><div class="between" style="align-items:center"><span class="mono">${esc(c.smartPass)}</span><button class="btn sm light" data-cp="p"><i class="fas fa-copy"></i></button></div></div>`;
       $('#credBox').onclick = async e => { const t = e.target.closest('[data-cp]'); if (t) { await navigator.clipboard.writeText(t.dataset.cp === 'u' ? c.smartUser : c.smartPass); toast('คัดลอกแล้ว'); } };
     });
     if (st === 'slip_review' && $('#loadSlip')) $('#loadSlip').click();

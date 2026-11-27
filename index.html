@@ -3,29 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Autofill SMARTMED</title>
+  <meta name="theme-color" content="#0f2d66">
+  <title>StupidMED</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <header class="top">
-    <button class="back" id="backBtn" hidden aria-label="ย้อนกลับ">‹</button>
-    <div class="title" id="title">Autofill SMARTMED</div>
+    <button class="back" id="backBtn" hidden aria-label="ย้อนกลับ"><i class="fas fa-chevron-left"></i></button>
+    <div class="logo"><i class="fas fa-hospital-user"></i></div>
+    <div class="title" id="title">StupidMED</div>
     <div class="who" id="who"></div>
   </header>
-  <main id="app"><div class="loading">กำลังโหลด…</div></main>
+  <main id="app"><div class="loading">กำลังโหลด</div></main>
   <div class="toast" id="toast" hidden></div>
   <datalist id="advisorList"></datalist>
 
-  <script src="config.js"></script>
+  <script src="config.js?v=2"></script>
   <script>
     if (!window.APP_CONFIG.MOCK_LIFF) document.write('<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\/script>');
   </script>
-  <script src="data.js"></script>
-  <script src="icd.js"></script>
-  <script src="promptpay.js"></script>
-  <script src="vendor/qrcode.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=2"></script>
+  <script src="icd.js?v=2"></script>
+  <script src="promptpay.js?v=2"></script>
+  <script src="vendor/qrcode.js?v=2"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
